@@ -1,8 +1,8 @@
 {
   "name": "cursor-freeload",
-  "displayName": "cursor-freeload",
+  "displayName": "Cursor Freeload",
   "description": "You can reset the machine code to give you the right to try again",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "repository": "https://github.com/vlinr/cursor-freeload.git",
   "publisher": "cursor-freeload",
   "engines": {
