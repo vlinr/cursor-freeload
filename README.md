@@ -1,6 +1,14 @@
 # Cursor Freeload
 
-## Usage
+## 功能
+
+针对Cursor IDE使用次数限制的一种解决方案，此项目仅用于学习使用，建议购买正版付费。
+
+## 打包
+
+`yarn && yarn package`
+
+## 打包后使用
 
 - web登录界面删除账户信息
 - Cursor IDE 退出账户登录
