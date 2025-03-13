@@ -1,128 +1,95 @@
-// The module 'vscode' contains the VS Code extensibility API
-// Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode'
-import * as os from 'os'
 import * as path from 'path'
-import * as fs from 'fs'
+import { getCursorPath, patchMainJS, unpackAppImage, SYSTEM } from './utils'
 
-function getStoragePath() {
-  // 首先检查用户是否在设置中指定了路径
-  const config = vscode.workspace.getConfiguration('cursorFreeload')
-  const customPath: string | undefined = config.get('storagePath')
-
-  if (customPath && fs.existsSync(customPath)) {
-    return customPath
-  }
-
-  // 如果没有指定或路径无效，使用默认路径
-  const platform = os.platform()
-  let basePath
-
-  switch (platform) {
-    case 'win32':
-      basePath = path.join(
-        os.homedir(),
-        'AppData',
-        'Roaming',
-        'Cursor',
-        'User',
-        'globalStorage',
-      )
-      break
-    case 'darwin':
-      basePath = path.join(
-        os.homedir(),
-        'Library',
-        'Application Support',
-        'Cursor',
-        'User',
-        'globalStorage',
-      )
-      break
-    case 'linux':
-      basePath = path.join(
-        os.homedir(),
-        '.config',
-        'Cursor',
-        'User',
-        'globalStorage',
-      )
-      break
-    default:
-      throw new Error('不支持的操作系统')
-  }
-
-  return path.join(basePath, 'storage.json')
-}
-
-function modifyMacMachineId() {
+async function modifyCursorMainJS() {
   try {
-    const storagePath = getStoragePath()
-
-    // 检查文件是否存在
-    if (!fs.existsSync(storagePath)) {
-      throw new Error(`文件不存在: ${storagePath}`)
+    let mainJSPath = ''
+    
+    if (SYSTEM === 'linux') {
+      try {
+        const appImagePath = getCursorPath()
+        const unpackedPath = unpackAppImage(appImagePath)
+        mainJSPath = path.join(unpackedPath, 'app', 'out', 'main.js')
+      } catch (error) {
+        throw new Error(`Linux系统下解包AppImage失败: ${(error as Error).message}`)
+      }
+    } else {
+      try {
+        mainJSPath = getCursorPath()
+      } catch (error) {
+        throw new Error(`获取Cursor路径失败: ${(error as Error).message}`)
+      }
     }
 
-    // 读取文件
-    let data = JSON.parse(fs.readFileSync(storagePath, 'utf8'))
+    // 获取用户配置
+    try {
+      const config = vscode.workspace.getConfiguration('cursorFreeload')
+      const options = {
+        machineId: config.get('customMachineId'),
+        macAddress: config.get('customMacAddress'),
+        sqmId: config.get('customSqmId'),
+        devDeviceId: config.get('customDevDeviceId')
+      }
 
-    // 获取用户配置的 machineId 或生成随机 ID
-    const config = vscode.workspace.getConfiguration('cursorFreeload')
-    const customMachineId = config.get('customMachineId')
-    const newMachineId = customMachineId || generateRandomMachineId()
+      // 验证配置值
+      if (options.machineId && typeof options.machineId !== 'string') {
+        throw new Error('自定义machineId必须是字符串类型')
+      }
+      if (options.macAddress && typeof options.macAddress !== 'string') {
+        throw new Error('自定义macAddress必须是字符串类型')
+      }
+      if (options.sqmId && typeof options.sqmId !== 'string') {
+        throw new Error('自定义sqmId必须是字符串类型')
+      }
+      if (options.devDeviceId && typeof options.devDeviceId !== 'string') {
+        throw new Error('自定义devDeviceId必须是字符串类型')
+      }
 
-    data['telemetry.macMachineId'] = newMachineId
+      // 修改main.js文件
+      try {
+        patchMainJS(mainJSPath, options as any)
+      } catch (error) {
+        throw new Error(`修改main.js文件失败: ${(error as Error).message}`)
+      }
 
-    // 写回文件
-    fs.writeFileSync(storagePath, JSON.stringify(data, null, 2), 'utf8')
-
-    return {
-      success: true,
-      message: '已成功修改 telemetry.macMachineId',
-      newId: newMachineId,
-      path: storagePath,
+      return {
+        success: true,
+        message: '已成功修改 main.js 文件',
+        path: mainJSPath
+      }
+    } catch (error) {
+      throw new Error(`配置处理失败: ${(error as Error).message}`)
     }
   } catch (error) {
-    throw new Error(`修改失败: ${(error as Error).message}`)
+    throw new Error(`操作失败: ${(error as Error).message}`)
   }
-}
-
-function generateRandomMachineId() {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-    const r = (Math.random() * 16) | 0
-    const v = c === 'x' ? r : (r & 0x3) | 0x8
-    return v.toString(16)
-  })
 }
 
 async function killCursorProcesses() {
-  const platform = os.platform()
-  const exec = require('child_process').exec
-
-  return new Promise((resolve, reject) => {
-    let command = ''
-    switch (platform) {
-      case 'win32':
-        command = 'taskkill /F /IM "Cursor.exe"'
-        break
-      case 'darwin':
-        command = 'pkill -9 Cursor'
-        break
-      case 'linux':
-        command = 'pkill -9 cursor'
-        break
-      default:
-        reject(new Error('不支持的操作系统'))
-        return
+  return new Promise<void>((resolve, reject) => {
+    const { exec } = require('child_process')
+    const command = SYSTEM === 'win32' ? 'taskkill /F /IM "Cursor.exe" & taskkill /F /IM "cursor.exe"' :
+                   SYSTEM === 'darwin' ? 'pkill -9 -i Cursor' :
+                   SYSTEM === 'linux' ? 'pkill -9 -i cursor' :
+                   ''
+    
+    if (!command) {
+      reject(new Error('不支持的操作系统'))
+      return
     }
 
     exec(command, (error: any) => {
-      if (error && error.code !== 1) {
-        reject(error)
+      if (error) {
+        // 特殊处理进程不存在的情况
+        if (error.code === 1 || (error.message && (error.message.includes('没有运行的实例') || error.message.includes('no process found')))) {
+          resolve() // 如果进程不存在，视为成功
+          return
+        }
+        reject(new Error(`终止Cursor进程失败: ${error.message || '未知错误'}`))
         return
       }
-      resolve('')
+      resolve()
     })
   })
 }
@@ -134,10 +101,10 @@ export function activate(context: vscode.ExtensionContext) {
     'cursor-freeload.cursor-freeload',
     async function () {
       try {
-        const result = modifyMacMachineId()
+        const result = await modifyCursorMainJS()
 
         vscode.window.showInformationMessage(
-          `修改成功！\n路径: ${result.path}\n新的 machineId: ${result.newId}`,
+          `修改成功！\n路径: ${result.path}`,
         )
 
         const answer = await vscode.window.showWarningMessage(
@@ -150,29 +117,15 @@ export function activate(context: vscode.ExtensionContext) {
         if (answer === '是') {
           try {
             await killCursorProcesses()
+            vscode.window.showInformationMessage('Cursor已成功终止，请手动重启应用')
           } catch (error) {
             vscode.window.showErrorMessage(
-              `操作失败: ${(error as Error).message}`,
+              `${(error as Error).message}`
             )
           }
         }
       } catch (error) {
-        vscode.window.showErrorMessage(`修改失败: ${(error as Error).message}`)
-
-        // 如果是路径不存在的错误，提示用户设置路径
-        if ((error as Error).message.includes('不存在')) {
-          const answer = await (vscode.window as any).showQuestionMessage(
-            '是否要打开设置页面指定 storage.json 的路径？',
-            '是',
-            '否',
-          )
-          if (answer === '是') {
-            vscode.commands.executeCommand(
-              'workbench.action.openSettings',
-              'cursorFreeload.storagePath',
-            )
-          }
-        }
+        vscode.window.showErrorMessage(`${(error as Error).message}`)
       }
     },
   )

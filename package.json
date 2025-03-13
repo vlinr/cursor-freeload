@@ -2,7 +2,7 @@
   "name": "cursor-freeload",
   "displayName": "Cursor Freeload",
   "description": "You can reset the machine code to give you the right to try again",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "repository": "https://github.com/vlinr/cursor-freeload.git",
   "publisher": "cursor-freeload",
   "engines": {
@@ -17,15 +17,25 @@
     "configuration": {
       "title": "Cursor Freeload",
       "properties": {
-        "cursorFreeload.storagePath": {
-          "type": "string",
-          "default": "",
-          "description": "自定义 storage.json 文件的路径。留空则使用默认路径。"
-        },
         "cursorFreeload.customMachineId": {
           "type": "string",
           "default": "",
           "description": "自定义 machineId。留空则随机生成。"
+        },
+        "cursorFreeload.customMacAddress": {
+          "type": "string",
+          "default": "",
+          "description": "自定义 MAC 地址。留空则随机生成。"
+        },
+        "cursorFreeload.customSqmId": {
+          "type": "string",
+          "default": "",
+          "description": "自定义 Windows SQM ID。留空则使用空字符串。"
+        },
+        "cursorFreeload.customDevDeviceId": {
+          "type": "string",
+          "default": "",
+          "description": "自定义 devDeviceId。留空则随机生成。"
         }
       }
     },
