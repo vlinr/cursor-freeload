@@ -5,18 +5,17 @@ import { getCursorPath, patchMainJS, unpackAppImage, SYSTEM } from './utils'
 async function modifyCursorMainJS() {
   try {
     let mainJSPath = ''
-    
     if (SYSTEM === 'linux') {
       try {
-        const appImagePath = getCursorPath()
-        const unpackedPath = unpackAppImage(appImagePath)
+        const appImagePath = await getCursorPath()
+        const unpackedPath = await unpackAppImage(appImagePath)
         mainJSPath = path.join(unpackedPath, 'app', 'out', 'main.js')
       } catch (error) {
         throw new Error(`Linux系统下解包AppImage失败: ${(error as Error).message}`)
       }
     } else {
       try {
-        mainJSPath = getCursorPath()
+        mainJSPath = await getCursorPath()
       } catch (error) {
         throw new Error(`获取Cursor路径失败: ${(error as Error).message}`)
       }
@@ -45,7 +44,6 @@ async function modifyCursorMainJS() {
       if (options.devDeviceId && typeof options.devDeviceId !== 'string') {
         throw new Error('自定义devDeviceId必须是字符串类型')
       }
-
       // 修改main.js文件
       try {
         patchMainJS(mainJSPath, options as any)

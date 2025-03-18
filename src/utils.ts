@@ -30,7 +30,7 @@ export function generateMacAddress(customMAC?: string): string {
 }
 
 // 获取Cursor主程序路径
-export function getCursorPath(): string {
+export async function getCursorPath(): Promise<string> {
   switch (SYSTEM) {
     case 'win32':
       // Windows下检查多个可能的安装路径
@@ -89,7 +89,7 @@ export function getCursorPath(): string {
             ) {
               const appImagePath = path.join(searchPath, file)
               if (fs.existsSync(appImagePath)) {
-                const unpackedPath = unpackAppImage(appImagePath)
+                const unpackedPath = await unpackAppImage(appImagePath)
                 const mainJSPath = path.join(unpackedPath, 'resources', 'app', 'out', 'main.js')
                 if (fs.existsSync(mainJSPath)) {
                   return mainJSPath
@@ -108,20 +108,89 @@ export function getCursorPath(): string {
   }
 }
 
+// 检查文件权限并请求提权
+async function checkAndRequestPermission(filePath: string, operation: 'read' | 'write'): Promise<boolean> {
+  try {
+    // 检查文件是否存在
+    if (operation === 'write' && !fs.existsSync(filePath)) {
+      const dirPath = path.dirname(filePath)
+      if (!fs.existsSync(dirPath)) {
+        await checkAndRequestPermission(dirPath, 'write')
+      }
+      return true
+    }
+
+    // 尝试访问文件
+    try {
+      fs.accessSync(filePath, operation === 'read' ? fs.constants.R_OK : fs.constants.W_OK)
+      return true
+    } catch (error) {
+      // 权限不足，需要请求提权
+      if ((error as NodeJS.ErrnoException).code === 'EACCES') {
+        const { exec } = require('child_process')
+
+        return new Promise((resolve, reject) => {
+          let command = ''
+          switch (SYSTEM) {
+            case 'win32':
+              // Windows使用PowerShell启动提权进程
+              command = `powershell.exe Start-Process -Verb RunAs "cmd.exe" "/c icacls ${filePath} /grant Users:F"`
+              break
+            case 'darwin':
+              // macOS使用osascript请求权限
+              command = `osascript -e 'do shell script "chmod ${operation === 'read' ? '+r' : '+w'} ${filePath}" with administrator privileges'`
+              break
+            case 'linux':
+              // Linux使用pkexec请求权限
+              command = `pkexec chmod ${operation === 'read' ? '+r' : '+w'} ${filePath}`
+              break
+            default:
+              reject(new Error(`不支持的操作系统: ${SYSTEM}`))
+              return
+          }
+
+          exec(command, (error: any) => {
+            if (error) {
+              reject(new Error(`请求文件权限失败，请手动授予权限：${error.message}`))
+              return
+            }
+            resolve(true)
+          })
+        })
+      }
+      throw error
+    }
+  } catch (error) {
+    throw new Error(`检查文件权限失败: ${(error as Error).message}`)
+  }
+}
+
 // 修改main.js文件
-export function patchMainJS(mainJSPath: string, options: {
+export async function patchMainJS(mainJSPath: string, options: {
   machineId?: string;
   macAddress?: string;
   sqmId?: string;
   devDeviceId?: string;
-}): void {
-  if (!fs.existsSync(mainJSPath)) {
-    throw new Error(`找不到目标文件: ${mainJSPath}`)
+}): Promise<void> {
+  // 检查文件读写权限
+  try {
+    await checkAndRequestPermission(mainJSPath, 'read')
+    await checkAndRequestPermission(mainJSPath, 'write')
+  } catch (error) {
+    throw new Error(`无法访问目标文件，请确保有足够的权限：${(error as Error).message}`)
   }
 
   let content: string
+  const backupPath = `${mainJSPath}.backup`
+  const backupExists = fs.existsSync(backupPath)
+  // 读取文件内容
   try {
-    content = fs.readFileSync(mainJSPath, 'utf8')
+    // 优先读取备份文件的内容
+    if (backupExists) {
+      content = fs.readFileSync(backupPath, 'utf8')
+    } else {
+      content = fs.readFileSync(mainJSPath, 'utf8')
+    }
   } catch (error) {
     throw new Error(`读取文件失败: ${(error as Error).message}`)
   }
@@ -130,34 +199,34 @@ export function patchMainJS(mainJSPath: string, options: {
   const machineId = generateRandomUUID(options.machineId)
   content = content.replace(
     /=.{0,50}timeout.{0,10}5e3.*?,/,
-    `=/*csp1*/${JSON.stringify(machineId)}/*1csp*/,`
+    `=/*cfs*/${JSON.stringify(machineId)}/*cfe*/,`
   )
 
   // 替换MAC地址
   const macAddress = generateMacAddress(options.macAddress)
   content = content.replace(
     /\\x01return.{0,50}timeout.{0,10}5e3.*?,/,
-    `return/*csp2*/${JSON.stringify(macAddress)}/*2csp*/,`
+    `return /*cfs*/${JSON.stringify(macAddress)}/*cfe*/,`
   )
 
   // 替换Windows SQM ID
   const sqmId = options.sqmId || ''
   content = content.replace(
     /return.{0,50}\.GetStringRegKey.*?HKEY_LOCAL_MACHINE.*?MachineId.*?\|\|.*?""/,
-    `return/*csp3*/${JSON.stringify(sqmId)}/*3csp*/`
+    `return /*cfs*/${JSON.stringify(sqmId)}/*cfe*/`
   )
 
   // 替换devDeviceId
   const devDeviceId = generateRandomUUID(options.devDeviceId)
   content = content.replace(
     /return.{0,50}vscode\/deviceid.*?getDeviceId\(\)/,
-    `return/*csp4*/${JSON.stringify(devDeviceId)}/*4csp*/`
+    `return /*cfs*/${JSON.stringify(devDeviceId)}/*cfe*/`
   )
 
   // 备份原文件
-  const backupPath = `${mainJSPath}.backup`
   try {
-    if (!fs.existsSync(backupPath)) {
+    if (!backupExists) {
+      await checkAndRequestPermission(backupPath, 'write')
       fs.copyFileSync(mainJSPath, backupPath)
     }
   } catch (error) {
@@ -173,7 +242,7 @@ export function patchMainJS(mainJSPath: string, options: {
 }
 
 // 解压AppImage文件
-export function unpackAppImage(appImagePath: string): string {
+export async function unpackAppImage(appImagePath: string): Promise<string> {
   if (SYSTEM !== 'linux') {
     throw new Error('AppImage只能在Linux系统下使用')
   }
@@ -185,6 +254,13 @@ export function unpackAppImage(appImagePath: string): string {
   const workDir = path.dirname(appImagePath)
   const squashfsDir = path.join(workDir, 'squashfs-root')
 
+  // 检查目录权限
+  try {
+    await checkAndRequestPermission(workDir, 'write')
+  } catch (error) {
+    throw new Error(`无法访问工作目录，请确保有足够的权限：${(error as Error).message}`)
+  }
+
   // 如果已经解压过，直接返回解压目录
   if (fs.existsSync(squashfsDir)) {
     return squashfsDir
@@ -192,6 +268,7 @@ export function unpackAppImage(appImagePath: string): string {
 
   try {
     // 设置可执行权限
+    await checkAndRequestPermission(appImagePath, 'write')
     fs.chmodSync(appImagePath, 0o755)
   } catch (error) {
     throw new Error(`设置AppImage可执行权限失败: ${(error as Error).message}`)
