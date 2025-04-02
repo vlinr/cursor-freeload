@@ -1,6 +1,7 @@
 import * as os from 'os'
 import * as path from 'path'
 import * as fs from 'fs'
+import * as vscode from 'vscode'
 import { execSync } from 'child_process'
 
 // 系统类型
@@ -33,7 +34,18 @@ export function generateMacAddress(customMAC?: string): string {
 export async function getCursorPath(): Promise<string> {
   switch (SYSTEM) {
     case 'win32':
-      // Windows下检查多个可能的安装路径
+      // 从VSCode配置中获取自定义路径
+      const config = vscode.workspace.getConfiguration('cursorFreeload')
+      const customPath = config.get('customCursorPath')
+      // 如果配置了自定义路径，优先检查
+      if (customPath && typeof customPath === 'string') {
+        const customMainJSPath = path.join(customPath, 'resources', 'app', 'out', 'main.js')
+        if (fs.existsSync(customMainJSPath)) {
+          return customMainJSPath
+        }
+      }
+
+      // 检查默认安装路径
       const cursorDirs = ['Cursor', 'cursor']
       const winPaths = cursorDirs.flatMap(dir => [
         path.join(os.homedir(), 'AppData', 'Local', 'Programs', dir, 'resources', 'app', 'out', 'main.js'),

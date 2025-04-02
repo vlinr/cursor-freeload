@@ -2,7 +2,7 @@
   "name": "cursor-freeload",
   "displayName": "Cursor Freeload",
   "description": "You can reset the machine code to give you the right to try again",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "repository": "https://github.com/vlinr/cursor-freeload.git",
   "publisher": "cursor-freeload",
   "engines": {
@@ -36,6 +36,11 @@
           "type": "string",
           "default": "",
           "description": "自定义 devDeviceId。留空则随机生成。"
+        },
+        "cursorFreeload.customCursorPath": {
+          "type": "string",
+          "default": "",
+          "description": "自定义 Cursor 安装路径。留空则使用内置默认路径。"
         }
       }
     },
@@ -72,5 +77,5 @@
     "eslint": "^9.21.0",
     "typescript": "^5.7.3"
   },
-  "icon": "./icon.png"
+  "icon": "icon.png"
 }
